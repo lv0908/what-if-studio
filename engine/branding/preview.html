@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Page Preview</title>
+<style>
+  @font-face { font-family: 'Inter'; font-weight: 600; src: url(../what-if/fonts/inter-latin-600-normal.woff2) format('woff2'); }
+  @font-face { font-family: 'Inter'; font-weight: 800; src: url(../what-if/fonts/inter-latin-800-normal.woff2) format('woff2'); }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #18191a; color: #e4e6eb; font: 600 15px Inter, system-ui, sans-serif; }
+  .bar { height: 56px; background: #242526; border-bottom: 1px solid #3a3b3c; }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  .cover { position: relative; width: 100%; aspect-ratio: 1640 / 624; background: url(hypothetica-cover.png) center / cover; border-radius: 0 0 10px 10px; }
+  .head { display: flex; align-items: flex-end; gap: 18px; padding: 0 32px; margin-top: -64px; position: relative; }
+  .pfp { width: 168px; height: 168px; border-radius: 50%; border: 4px solid #242526; background: url(hypothetica-profile.png) center / cover; flex: none; }
+  .who { padding-bottom: 14px; flex: 1; }
+  .who h1 { margin: 0; font: 800 32px Inter, sans-serif; color: #fff; }
+  .who p { margin: 4px 0 0; color: #b0b3b8; }
+  .btns { display: flex; gap: 8px; padding-bottom: 18px; }
+  .btn { padding: 9px 16px; border-radius: 6px; background: #3a3b3c; color: #e4e6eb; font-weight: 800; }
+  .btn.p { background: #2d88ff; color: #fff; }
+  .intro { margin: 18px 32px; padding: 16px; background: #242526; border-radius: 10px; max-width: 420px; }
+  .intro b { display: block; font: 800 19px Inter, sans-serif; margin-bottom: 8px; color: #fff; }
+  .intro .bio { text-align: center; line-height: 1.45; }
+  .note { position: fixed; right: 10px; bottom: 8px; font-size: 11px; color: #777; }
+  /* mobile */
+  .m .cover { aspect-ratio: 16 / 9; border-radius: 0; }
+  .m .head { flex-direction: column; align-items: center; margin-top: -70px; padding: 0 16px; text-align: center; }
+  .m .pfp { width: 140px; height: 140px; }
+  .m .who h1 { font-size: 26px; }
+  .m .btns { width: 100%; }
+  .m .btn { flex: 1; text-align: center; }
+  .m .intro { margin: 8px 16px; }
+</style>
+</head>
+<body>
+<div class="bar"></div>
+<div class="wrap" id="wrap">
+  <div class="cover"></div>
+  <div class="head">
+    <div class="pfp"></div>
+    <div class="who"><h1>Hypothetica</h1><p>Digital creator · 3D animated What Ifs</p></div>
+    <div class="btns"><span class="btn p">Follow</span><span class="btn">Message</span></div>
+  </div>
+  <div class="intro"><b>Intro</b><div class="bio">What if the world changed overnight? 🌍<br>3D animated What Ifs, backed by real numbers.</div></div>
+</div>
+<div class="note">Layout preview only — not an exact replica of any app.</div>
+<script>
+  if (location.search.includes('mobile')) document.body.classList.add('m');
+  const B = new URLSearchParams(location.search).get('brand');
+  const files = B === 'earthb' ? ['earth-b/earth-b-cover.png', 'earth-b/earth-b-profile.png'] : ['hypothetica-cover.png', 'hypothetica-profile.png'];
+  document.querySelector('.cover').style.backgroundImage = `url(${files[0]})`;
+  document.querySelector('.pfp').style.backgroundImage = `url(${files[1]})`;
+  if (B === 'earthb') {
+    document.querySelector('.who h1').textContent = 'Earth B';
+    document.querySelector('.who p').textContent = 'Digital creator · 3D What If stories';
+    document.querySelector('.bio').innerHTML = 'Same planet. One thing changed. 🌍<br>Weekly 3D What If stories, with real numbers.';
+    document.querySelector('.btn.p').style.background = '#ff6a4d';
+  }
+  const imgs = files.map((s) => new Promise((r) => { const i = new Image(); i.onload = i.onerror = r; i.src = s; }));
+  Promise.all([document.fonts.ready, ...imgs]).then(() => { window.__done = true; });
+</script>
+</body>
+</html>

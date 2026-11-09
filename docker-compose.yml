@@ -1,0 +1,13 @@
+services:
+  what-if-studio:
+    build: .
+    image: what-if-studio:local
+    container_name: what-if-studio
+    ports:
+      - "3000:3000"
+    environment:
+      RENDER_CHUNKS: "2"
+    volumes:
+      - ./storage:/data
+    restart: unless-stopped
+    shm_size: "2gb"
