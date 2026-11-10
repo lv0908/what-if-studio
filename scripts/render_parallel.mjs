@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { renderDuration, frameRanges } from './story_timeline.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, arr) => (v.startsWith('--') ? [...a, [v.slice(2), arr[i + 1] && !arr[i + 1].startsWith('--') ? arr[i + 1] : true]] : a), []));
@@ -20,15 +21,16 @@ const AUDIO = path.resolve(ROOT, args.audio || 'media/soundtrack.m4a');
 const CH = path.join(ROOT, 'media/chunks');
 fs.mkdirSync(CH, { recursive: true });
 
-// total duration = sum of `dur:` values in TIMELINE (src/main.js)
+// Match the storyboard file consumed by render.mjs; without one use the bundled timeline.
 const main = fs.readFileSync(path.join(ROOT, 'src/main.js'), 'utf8');
-const tl = main.slice(main.indexOf('TIMELINE'), main.indexOf('];', main.indexOf('TIMELINE')));
-const total = [...tl.matchAll(/\bdur:\s*([\d.]+)/g)].reduce((a, m) => a + Number(m[1]), 0);
+const storyFile = path.join(ROOT, 'story.json');
+const story = fs.existsSync(storyFile) ? JSON.parse(fs.readFileSync(storyFile, 'utf8')) : null;
+const total = renderDuration(main, story);
 const frames = Math.round(total * FPS);
 if (!frames) { console.error('Could not read scene durations from src/main.js'); process.exit(1); }
 
 // chunk frame ranges [f0, f1)
-const ranges = Array.from({ length: N }, (_, i) => [Math.round((frames * i) / N), Math.round((frames * (i + 1)) / N)]);
+const ranges = frameRanges(total, FPS, N);
 console.log(`${total}s = ${frames} frames at ${FPS}fps, ${N} chunks:`, ranges.map((r) => r.join('-')).join(', '));
 
 const count = (f) => { try { return Number(execFileSync('ffprobe', ['-v', 'error', '-count_frames', '-select_streams', 'v', '-show_entries', 'stream=nb_read_frames', '-of', 'csv=p=0', f]).toString().trim()); } catch { return 0; } };
@@ -39,7 +41,10 @@ const jobs = ranges.map(([f0, f1], i) => {
   const log = fs.openSync(path.join(CH, `chunk-${i}.log`), 'w');
   const p = spawn('node', [path.join(HERE, 'render.mjs'), '--project', ROOT, '--from', String(f0 / FPS), '--to', String(f1 / FPS), '--w', String(W), '--h', String(H), '--fps', String(FPS), '--out', out], { stdio: ['ignore', log, log], detached: true });
   procs.push(p);
-  return new Promise((res, rej) => p.on('exit', (code) => (code === 0 ? res(out) : rej(new Error(`chunk ${i} failed (exit ${code}); see ${path.join(CH, `chunk-${i}.log`)}`)))));
+  return new Promise((res, rej) => {
+    p.once('error', (error) => rej(new Error(`chunk ${i} could not start: ${error.message}`)));
+    p.once('exit', (code) => (code === 0 ? res(out) : rej(new Error(`chunk ${i} failed (exit ${code}); see ${path.join(CH, `chunk-${i}.log`)}`))));
+  });
 });
 const stopAll = () => procs.forEach((p) => { try { process.kill(-p.pid, 'SIGTERM'); } catch {} });
 process.on('SIGINT', () => { stopAll(); process.exit(130); });

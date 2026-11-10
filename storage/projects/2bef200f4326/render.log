@@ -1,0 +1,17 @@
+29.999899999999997s = 900 frames at 30fps, 2 chunks: 0-450, 450-900
+06:00:59 #0 frame 0/450  11s elapsed | #1 frame 0/450  9s elapsed
+06:01:59 #0 frame 0/450  11s elapsed | #1 frame 60/450  114s elapsed
+06:02:59 #0 frame 30/450  145s elapsed | #1 frame 90/450  157s elapsed
+06:03:59 #0 frame 30/450  145s elapsed | #1 frame 120/450  205s elapsed
+06:04:59 #0 frame 60/450  257s elapsed | #1 frame 180/450  293s elapsed
+06:05:59 #0 frame 60/450  257s elapsed | #1 frame 210/450  337s elapsed
+06:06:59 #0 frame 90/450  374s elapsed | #1 frame 240/450  382s elapsed
+06:07:59 #0 frame 120/450  450s elapsed | #1 frame 300/450  456s elapsed
+06:08:59 #0 frame 180/450  509s elapsed | #1 frame 360/450  524s elapsed
+06:09:59 #0 frame 240/450  580s elapsed | #1 wrote /data/projects/2bef200f4326/what-if/media/chunks/chunk-1.mp4
+06:11:00 #0 frame 300/450  649s elapsed | #1 wrote /data/projects/2bef200f4326/what-if/media/chunks/chunk-1.mp4
+06:12:00 #0 frame 300/450  649s elapsed | #1 wrote /data/projects/2bef200f4326/what-if/media/chunks/chunk-1.mp4
+06:13:00 #0 frame 330/450  727s elapsed | #1 wrote /data/projects/2bef200f4326/what-if/media/chunks/chunk-1.mp4
+06:14:00 #0 frame 360/450  799s elapsed | #1 wrote /data/projects/2bef200f4326/what-if/media/chunks/chunk-1.mp4
+06:15:00 #0 frame 420/450  894s elapsed | #1 wrote /data/projects/2bef200f4326/what-if/media/chunks/chunk-1.mp4
+wrote /data/projects/2bef200f4326/what-if/media/final.mp4

@@ -7,11 +7,12 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { plaza, hospital, cemetery, street } from './scenes-a.js';
 import { market, park, ocean, launch, earth } from './scenes-b.js';
 import { clamp, smooth, lerp } from './lib.js';
+import { buildDynamicScene } from './interpreter.js';
 
 /* ---------- the story ---------- */
 // pop: world population at the start/end of each shot. Assumes ~134M births a year at first,
 // falling as countries restrict births, and zero deaths.
-export const TIMELINE = [
+export let TIMELINE = [
   { build: plaza, dur: 8.0, when: 'DAY 0', pop: [8312604118, 8312604152], caps: [[0.3, 3.9, 'What if, at midnight tonight, nobody could die?'], [4.1, 7.8, 'Not from age. Not from illness. Not from anything.']] },
   { build: hospital, dur: 7.0, when: 'DAY 1', pop: [8312975402, 8312975436], caps: [[0.3, 3.4, 'By morning, every hospital is overflowing.'], [3.6, 6.8, 'No one dies. But no one heals any faster.']] },
   { build: cemetery, dur: 6.5, when: 'MONTH 3', pop: [8346118227, 8346121509], caps: [[0.3, 3.1, 'Funeral homes close their doors.'], [3.3, 6.3, 'The cemeteries go silent.']] },
@@ -24,7 +25,7 @@ export const TIMELINE = [
 ];
 let acc = 0;
 for (const s of TIMELINE) { s.start = acc; acc += s.dur; }
-export const DURATION = acc;
+export let DURATION = acc;
 
 /* ---------- renderer ---------- */
 const canvas = document.getElementById('gl');
@@ -51,7 +52,7 @@ let lastCap = null;
 function overlay(T, s, local) {
   const u = clamp(local / s.dur);
   const pop = Math.floor(lerp(s.pop[0], s.pop[1], u));
-  popEl.textContent = fmt.format(pop);
+  popEl.textContent = s.pop[0] ? fmt.format(pop) : '';
   whenEl.textContent = s.when;
   hudEl.style.opacity = String(smooth((T - 0.4) / 0.8));
 
@@ -76,8 +77,9 @@ function overlay(T, s, local) {
 
   // fade through black between shots, longer fade out at the very end
   const isLast = s === TIMELINE[TIMELINE.length - 1];
-  const fin = s === TIMELINE[0] ? 0.6 : 0.3, fout = isLast ? 1.2 : 0.3;
-  const black = Math.max(1 - smooth(local / fin), 1 - smooth((s.dur - local) / fout));
+  const cut = s.visual?.transition === 'cut';
+  const fin = cut ? 0 : (s === TIMELINE[0] ? 0.6 : 0.3), fout = cut ? 0 : (isLast ? 1.2 : 0.3);
+  const black = cut ? 0 : Math.max(1 - smooth(local / fin), 1 - smooth((s.dur - local) / fout));
   fadeEl.style.opacity = String(black);
   grainEl.style.backgroundPosition = `${Math.floor(T * 24 * 37) % 200}px ${Math.floor(T * 24 * 53) % 200}px`;
 }
@@ -89,6 +91,19 @@ async function init() {
     document.fonts.load('400 40px "Libre Baskerville"'), document.fonts.load('italic 400 40px "Libre Baskerville"'),
     document.fonts.load('700 40px "Space Mono"'), document.fonts.load('800 40px Inter'), document.fonts.load('600 40px Inter'),
   ]);
+  if (params.has('story')) {
+    const response = await fetch('./story.json');
+    if (!response.ok) throw new Error('Approved storyboard could not be loaded.');
+    const story = await response.json();
+    let start = 0;
+    TIMELINE = story.scenes.map((scene) => {
+      const dur=scene.duration, count=Math.max(1,scene.captions.length);
+      const caps=scene.captions.map((text,i)=>[dur*i/count,dur*(i+1)/count,text]);
+      const item={...scene,build:()=>buildDynamicScene(scene),dur,start,when:scene.title,pop:[0,0],caps,visual:scene.visual}; start+=dur; return item;
+    });
+    DURATION=start;
+    popEl.previousElementSibling.textContent='SCENE';
+  }
   for (const s of TIMELINE) s.shot = s.build();
   // warm up: compile every scene once
   for (const s of TIMELINE) { s.shot.update(0.01, s.dur); renderer.compile(s.shot.scene, s.shot.camera); }
@@ -108,6 +123,33 @@ export function renderAt(T) {
   overlay(T, s, local);
 }
 
+function dispose() {
+  const geometries = new Set(), materials = new Set(), textures = new Set();
+  for (const item of TIMELINE) {
+    if (!item.shot) continue;
+    if (item.shot.scene.background?.isTexture) textures.add(item.shot.scene.background);
+    if (item.shot.scene.environment?.isTexture) textures.add(item.shot.scene.environment);
+    item.shot.scene.traverse((object) => {
+      if (object.geometry) geometries.add(object.geometry);
+      const list = Array.isArray(object.material) ? object.material : object.material ? [object.material] : [];
+      for (const material of list) {
+        materials.add(material);
+        for (const value of Object.values(material)) {
+          if (value?.isTexture) textures.add(value);
+          if (Array.isArray(value)) for (const entry of value) if (entry?.isTexture) textures.add(entry);
+        }
+      }
+    });
+  }
+  textures.forEach((texture) => texture.dispose());
+  materials.forEach((material) => material.dispose());
+  geometries.forEach((geometry) => geometry.dispose());
+  bloom.dispose();
+  composer.passes.forEach((pass) => pass.dispose?.());
+  composer.dispose();
+  renderer.dispose();
+}
+
 /* ---------- sizing ---------- */
 function fit() {
   const stage = $('stage');
@@ -118,7 +160,7 @@ function fit() {
 }
 window.addEventListener('resize', fit); fit();
 
-window.__whatif = { renderAt, DURATION, TIMELINE, ready: init() };
+window.__whatif = { renderAt, dispose, get DURATION() { return DURATION; }, get TIMELINE() { return TIMELINE; }, ready: init() };
 
 /* ---------- interactive player ---------- */
 if (!RENDER_MODE) {

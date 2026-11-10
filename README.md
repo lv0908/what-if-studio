@@ -13,7 +13,7 @@ A browser-based local UI around the original bundled What If 3D Shorts rendering
    ```
 
 4. Open <http://localhost:3000>.
-5. Enter a premise, choose 30/45/60/75 seconds and a soundtrack mood, then create an episode.
+5. Enter a premise, choose 30/45/60/75 seconds, export resolution (480p/720p/1080p), and soundtrack mood, then create an episode. 720p is the default.
 
 Stop with `docker compose down`. Projects and exports persist under `./storage`.
 

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>What If No One Could Die?</title>
+  <style>
+    @font-face { font-family: 'Libre Baskerville'; font-weight: 400; src: url(fonts/libre-baskerville-latin-400-normal.woff2) format('woff2'); }
+    @font-face { font-family: 'Libre Baskerville'; font-weight: 400; font-style: italic; src: url(fonts/libre-baskerville-latin-400-italic.woff2) format('woff2'); }
+    @font-face { font-family: 'Space Mono'; font-weight: 700; src: url(fonts/space-mono-latin-700-normal.woff2) format('woff2'); }
+    @font-face { font-family: 'Inter'; font-weight: 600; src: url(fonts/inter-latin-600-normal.woff2) format('woff2'); }
+    @font-face { font-family: 'Inter'; font-weight: 800; src: url(fonts/inter-latin-800-normal.woff2) format('woff2'); }
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+    body { display: flex; align-items: center; justify-content: center; }
+    #stage { position: relative; overflow: hidden; background: #000; cursor: pointer; --u: 9.6px; }
+    #gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    #hud { position: absolute; left: calc(var(--u) * 1.3); top: calc(var(--u) * 40.5); color: #fff; text-shadow: 0 0 calc(var(--u) * .8) rgba(0,0,0,.65); }
+    .label { font: 800 calc(var(--u) * 1.35) Inter, system-ui, sans-serif; letter-spacing: .28em; }
+    .pop { font: 400 calc(var(--u) * 4.2) 'Libre Baskerville', Georgia, serif; letter-spacing: -.01em; margin: calc(var(--u) * .1) 0 calc(var(--u) * .4); font-variant-numeric: lining-nums; }
+    #cap { position: absolute; left: 50%; top: calc(var(--u) * 56); width: 88%; transform: translate(-50%, 0); text-align: center; color: #fff;
+      font: italic 400 calc(var(--u) * 2.25) 'Libre Baskerville', Georgia, serif; line-height: 1.35;
+      text-shadow: 0 0 calc(var(--u) * .5) rgba(0,0,0,.85), 0 0 calc(var(--u) * 1.6) rgba(0,0,0,.55); }
+    #cap span { display: inline-block; }
+    #cap.final { top: calc(var(--u) * 54); font-size: calc(var(--u) * 3.3); width: 84%; }
+    #vig { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 45%, rgba(0,0,0,0) 45%, rgba(0,0,0,.55) 100%); }
+    #grain { position: absolute; inset: -50%; pointer-events: none; opacity: .09; mix-blend-mode: overlay;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+    #fade { position: absolute; inset: 0; background: #000; opacity: 1; pointer-events: none; }
+    #play { position: absolute; inset: 0; display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); align-items: center; justify-content: center; color: #fff; background: rgba(0,0,0,.35);
+      font: 800 calc(var(--u) * 1.3) Inter, system-ui, sans-serif; letter-spacing: .25em; transition: opacity .3s; }
+    #play::before { content: ''; width: calc(var(--u) * 7); height: calc(var(--u) * 7); border-radius: 50%; border: 2px solid rgba(255,255,255,.8);
+      background: no-repeat 58% 50% / 38% url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 12'><path d='M0 0l10 6-10 6z' fill='white'/></svg>"); }
+    #play:not(.ready)::after { content: 'LOADING…'; }
+    #play.ready::after { content: 'WHAT IF'; }
+    #play.hidden { opacity: 0; pointer-events: none; }
+    #progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255,255,255,.15); }
+    #bar { height: 100%; width: 0; background: #fff; }
+    .render #play, .render #progress { display: none; }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="gl"></canvas>
+    <div id="vig"></div>
+    <div id="hud">
+      <div class="label">WORLD POPULATION</div>
+      <div id="pop" class="pop">8,312,604,118</div>
+      <div id="when" class="label">DAY 0</div>
+    </div>
+    <div id="cap"></div>
+    <div id="grain"></div>
+    <div id="fade"></div>
+    <div id="play"></div>
+    <div id="progress"><div id="bar"></div></div>
+  </div>
+  <audio id="audio" src="media/soundtrack.m4a" preload="auto"></audio>
+  <script>if (location.search.includes('render')) document.body.classList.add('render');</script>
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three/three.module.min.js", "three/addons/": "./vendor/three/addons/" } }
+  </script>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
