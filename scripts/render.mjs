@@ -58,6 +58,10 @@ if (args.stills) {
 } else {
   const from = Number(args.from || 0), to = Math.min(Number(args.to || DURATION), DURATION);
   const n = Math.round((to - from) * FPS);
+  const emitProgress = (completed, renderComplete = false) => console.log('WHATIF_PROGRESS ' + JSON.stringify({
+    event: 'render_progress', stage: 'rendering', frame_kind: 'captured',
+    completed_frames: completed, total_frames: n, render_complete: renderComplete,
+  }));
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   const ff = encoder = spawn('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(FPS), '-i', '-', '-c:v', 'libx264', '-preset', 'slow', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', OUT], { stdio: ['pipe', 'inherit', 'inherit'] });
   let encodeError = null;
@@ -68,12 +72,15 @@ if (args.stills) {
   for (let i = 0; i < n; i++) {
     const buf = await shot(from + i / FPS);
     if (!ff.stdin.write(buf)) await new Promise((r) => ff.stdin.once('drain', r));
+    // Count only after the screenshot has been accepted by FFmpeg's stdin pipeline.
+    emitProgress(i + 1);
     if (i % 30 === 0) { const el = (Date.now() - started) / 1000; console.log(`frame ${i}/${n}  ${el.toFixed(0)}s elapsed, ~${((el / (i + 1)) * (n - i - 1)).toFixed(0)}s left`); }
   }
   ff.stdin.end();
   const exitCode = await ffmpegClosed;
   if (encodeError) throw encodeError;
   if (exitCode !== 0) throw new Error(`ffmpeg exited with code ${exitCode}`);
+  emitProgress(n, true);
   console.log('wrote', OUT);
 }
 } finally {

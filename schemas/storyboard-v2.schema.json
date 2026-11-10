@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://what-if-studio.local/schemas/storyboard-v2.schema.json",
+  "title": "What If Studio Storyboard",
+  "description": "Version 2 storyboard contract. Version 1 documents are normalized to this representation by the API.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "topic", "duration", "tone", "audience", "narrative_style", "title", "logline", "opening_hook", "narration", "scenes", "ending"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "topic": {"type": "string", "minLength": 5, "maxLength": 500},
+    "duration": {"enum": [30, 45, 60, 75]},
+    "tone": {"type": "string", "minLength": 1, "maxLength": 80},
+    "audience": {"type": "string", "minLength": 1, "maxLength": 80},
+    "narrative_style": {"type": "string", "minLength": 1, "maxLength": 100},
+    "title": {"type": "string", "minLength": 1, "maxLength": 200},
+    "logline": {"type": "string", "maxLength": 1000},
+    "opening_hook": {"type": "string", "maxLength": 2000},
+    "narration": {"type": "string", "maxLength": 20000},
+    "ending": {"type": "string", "maxLength": 2000},
+    "scenes": {"type": "array", "minItems": 1, "maxItems": 30, "items": {"$ref": "#/$defs/scene"}},
+    "actors": {"type": "array", "maxItems": 500, "items": {"$ref": "#/$defs/actor"}},
+    "assets": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/asset"}},
+    "camera_tracks": {"type": "array", "maxItems": 500, "items": {"$ref": "#/$defs/cameraTrack"}},
+    "transitions": {"type": "array", "maxItems": 500, "items": {"$ref": "#/$defs/transition"}},
+    "lighting_cues": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/cue"}},
+    "audio_cues": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/audioCue"}}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-zA-Z0-9_-]{1,64}$"},
+    "actor": {"type": "object", "additionalProperties": false, "required": ["id", "name"], "properties": {"id": {"$ref": "#/$defs/id"}, "name": {"type": "string", "minLength": 1, "maxLength": 160}, "description": {"type": "string", "maxLength": 2000}, "asset_id": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]}, "metadata": {"type": "object"}}},
+    "asset": {"type": "object", "additionalProperties": false, "required": ["id", "uri"], "properties": {"id": {"$ref": "#/$defs/id"}, "type": {"enum": ["image", "model", "audio", "video", "font", "other"]}, "uri": {"type": "string", "minLength": 1, "maxLength": 2000}, "metadata": {"type": "object"}}},
+    "event": {"type": "object", "additionalProperties": false, "required": ["id", "type", "start"], "properties": {"id": {"$ref": "#/$defs/id"}, "type": {"enum": ["enter", "exit", "move", "walk", "run", "turn", "wait", "follow", "move_toward", "approach", "look_at", "appear", "disappear"]}, "start": {"type": "number", "minimum": 0}, "duration": {"type": "number", "minimum": 0}, "actor_id": {"$ref": "#/$defs/id"}, "target_id": {"$ref": "#/$defs/id"}, "from_position": {"$ref": "#/$defs/vector"}, "to_position": {"$ref": "#/$defs/vector"}, "from_rotation": {"$ref": "#/$defs/vector"}, "to_rotation": {"$ref": "#/$defs/vector"}, "parameters": {"type": "object"}, "easing": {"enum": ["linear", "ease_in", "ease_out", "ease_in_out"]}, "actor_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}}, "asset_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}}, "data": {"type": "object"}}},
+    "vector": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}},
+    "scene": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "title", "duration", "narration", "captions", "environment", "objects_and_characters", "camera_position", "camera_movement", "lighting_atmosphere", "animation_instructions", "transition", "sound_design"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"}, "title": {"type": "string", "minLength": 1, "maxLength": 160}, "duration": {"type": "number", "exclusiveMinimum": 0, "maximum": 300},
+        "narration": {"type": "string", "maxLength": 5000}, "captions": {"type": "array", "maxItems": 12, "items": {"type": "string", "maxLength": 500}},
+        "environment": {"type": "string", "maxLength": 2000}, "objects_and_characters": {"type": "array", "maxItems": 30, "items": {"type": "string", "maxLength": 500}},
+        "camera_position": {"type": "string", "maxLength": 1000}, "camera_movement": {"type": "string", "maxLength": 1000}, "lighting_atmosphere": {"type": "string", "maxLength": 1500},
+        "animation_instructions": {"type": "string", "maxLength": 2000}, "transition": {"type": "string", "maxLength": 500}, "sound_design": {"type": "string", "maxLength": 1000},
+        "actor_ids": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/id"}}, "asset_ids": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/id"}},
+        "events": {"type": "array", "maxItems": 200, "items": {"$ref": "#/$defs/event"}},
+        "visual": {"type": "object", "additionalProperties": false, "properties": {
+          "environment": {"enum": ["plain", "prehistoric_jungle", "underwater_city", "ocean", "desert", "forest", "city", "space"]},
+          "background": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"}, "ground": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+          "props": {"type": "array", "maxItems": 30, "items": {"type": "object", "properties": {"id": {"$ref": "#/$defs/id"}, "actor_id": {"$ref": "#/$defs/id"}, "visible": {"type": "boolean"}}}},
+          "camera_position": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}}, "camera_look_at": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}},
+          "camera_movement": {"enum": ["static", "push", "pan", "orbit"]}, "light_color": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"}, "light_intensity": {"type": "number", "minimum": 0, "maximum": 10},
+          "fog_color": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"}, "fog_density": {"type": "number", "minimum": 0, "maximum": 0.2}, "transition": {"enum": ["fade", "cut"]}
+        }}
+      }
+    },
+    "cameraTrack": {"type": "object", "additionalProperties": false, "required": ["id", "scene_id", "keyframes"], "properties": {"id": {"$ref": "#/$defs/id"}, "scene_id": {"$ref": "#/$defs/id"}, "keyframes": {"type": "array", "minItems": 1, "maxItems": 500, "items": {"type": "object"}}}},
+    "transition": {"type": "object", "additionalProperties": false, "required": ["id", "from_scene_id", "to_scene_id"], "properties": {"id": {"$ref": "#/$defs/id"}, "from_scene_id": {"$ref": "#/$defs/id"}, "to_scene_id": {"$ref": "#/$defs/id"}, "type": {"type": "string"}, "duration": {"type": "number", "minimum": 0, "maximum": 30}}},
+    "cue": {"type": "object", "additionalProperties": false, "required": ["id", "scene_id", "start", "settings"], "properties": {"id": {"$ref": "#/$defs/id"}, "scene_id": {"$ref": "#/$defs/id"}, "start": {"type": "number", "minimum": 0}, "duration": {"type": "number", "minimum": 0}, "settings": {"type": "object"}}},
+    "audioCue": {"type": "object", "additionalProperties": false, "required": ["id", "scene_id", "start"], "properties": {"id": {"$ref": "#/$defs/id"}, "scene_id": {"$ref": "#/$defs/id"}, "start": {"type": "number", "minimum": 0}, "duration": {"type": "number", "minimum": 0}, "asset_id": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]}, "kind": {"type": "string"}, "settings": {"type": "object"}}}
+  }
+}

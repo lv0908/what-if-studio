@@ -1,0 +1,321 @@
+{
+  "topic": "What if dinosaurs returned to Earth?",
+  "duration": 30,
+  "mood": "dark",
+  "resolution": 480,
+  "story": {
+    "schema_version": 1,
+    "topic": "What if dinosaurs returned to Earth?",
+    "duration": 30,
+    "tone": "Tense and suspenseful",
+    "audience": "General audience",
+    "narrative_style": "Visual documentary with a strong narrative arc",
+    "title": "The First Day of the Dinosaurs",
+    "logline": "A sudden return of dinosaurs transforms a modern city and forces humanity to adapt.",
+    "opening_hook": "At sunrise, the forest begins to move.",
+    "narration": "At sunrise, the forest begins to move. A herd of giants emerges from a living jungle. Cities fall quiet as people watch from behind glass. By nightfall, the world has learned that Earth belongs to its oldest inhabitants too.",
+    "scenes": [
+      {
+        "id": "dino-jungle",
+        "title": "The jungle wakes",
+        "duration": 10.0,
+        "narration": "At sunrise, the forest begins to move.",
+        "captions": [
+          "The giants are back"
+        ],
+        "environment": "A dense prehistoric jungle at dawn",
+        "objects_and_characters": [
+          "A towering herbivore",
+          "Ferns and ancient trees"
+        ],
+        "camera_position": "Low wide shot looking into the clearing",
+        "camera_movement": "Slow push toward the clearing",
+        "lighting_atmosphere": "Warm sunrise filtered through green mist",
+        "animation_instructions": "Herbivore slowly walks and breathes",
+        "transition": "fade",
+        "sound_design": "Low rumbling calls",
+        "visual": {
+          "environment": "prehistoric_jungle",
+          "background": "#d17f58",
+          "ground": "#35432b",
+          "props": [
+            {
+              "kind": "dinosaur",
+              "name": "herbivore",
+              "color": "#72934d",
+              "position": [
+                0.0,
+                0.0,
+                -7.0
+              ],
+              "rotation": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "scale": [
+                1.5,
+                1.5,
+                1.5
+              ],
+              "motion": "walk"
+            },
+            {
+              "kind": "dinosaur",
+              "name": "young dinosaur",
+              "color": "#b68b52",
+              "position": [
+                -3.0,
+                0.0,
+                -4.0
+              ],
+              "rotation": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "scale": [
+                0.55,
+                0.55,
+                0.55
+              ],
+              "motion": "still"
+            }
+          ],
+          "camera_position": [
+            0.0,
+            3.0,
+            15.0
+          ],
+          "camera_look_at": [
+            0.0,
+            2.0,
+            -5.0
+          ],
+          "camera_movement": "push",
+          "light_color": "#ffd19a",
+          "light_intensity": 2.3,
+          "fog_color": "#738356",
+          "fog_density": 0.018,
+          "transition": "fade"
+        }
+      },
+      {
+        "id": "dino-city",
+        "title": "A city holds its breath",
+        "duration": 10.0,
+        "narration": "A herd of giants emerges beside a modern city.",
+        "captions": [
+          "A new world meets the old"
+        ],
+        "environment": "City edge reclaimed by jungle",
+        "objects_and_characters": [
+          "Glass towers",
+          "Dinosaur herd",
+          "Trees"
+        ],
+        "camera_position": "Elevated view across a green city edge",
+        "camera_movement": "Slow pan",
+        "lighting_atmosphere": "Bright overcast afternoon",
+        "animation_instructions": "Small herd moves across foreground",
+        "transition": "fade",
+        "sound_design": "Distant traffic fades into calls",
+        "visual": {
+          "environment": "city",
+          "background": "#9eb9bd",
+          "ground": "#46634b",
+          "props": [
+            {
+              "kind": "building",
+              "name": "",
+              "color": "#567a83",
+              "position": [
+                -5.0,
+                0.0,
+                -12.0
+              ],
+              "rotation": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "scale": [
+                1.4,
+                1.6,
+                1.4
+              ],
+              "motion": "still"
+            },
+            {
+              "kind": "building",
+              "name": "",
+              "color": "#718c91",
+              "position": [
+                5.0,
+                0.0,
+                -16.0
+              ],
+              "rotation": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "scale": [
+                1.7,
+                2.1,
+                1.4
+              ],
+              "motion": "still"
+            },
+            {
+              "kind": "dinosaur",
+              "name": "",
+              "color": "#668c55",
+              "position": [
+                -1.0,
+                0.0,
+                -5.0
+              ],
+              "rotation": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "scale": [
+                1.1,
+                1.1,
+                1.1
+              ],
+              "motion": "walk"
+            },
+            {
+              "kind": "tree",
+              "name": "",
+              "color": "#347147",
+              "position": [
+                4.0,
+                0.0,
+                -4.0
+              ],
+              "rotation": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "scale": [
+                1.0,
+                1.0,
+                1.0
+              ],
+              "motion": "still"
+            }
+          ],
+          "camera_position": [
+            0.0,
+            9.0,
+            18.0
+          ],
+          "camera_look_at": [
+            0.0,
+            2.0,
+            -8.0
+          ],
+          "camera_movement": "pan",
+          "light_color": "#e8f4ef",
+          "light_intensity": 1.8,
+          "fog_color": "#9eb9bd",
+          "fog_density": 0.006,
+          "transition": "fade"
+        }
+      },
+      {
+        "id": "dino-twilight",
+        "title": "Sharing the horizon",
+        "duration": 10.0,
+        "narration": "By nightfall, people watch the giants beneath a violet sky.",
+        "captions": [
+          "Earth remembers"
+        ],
+        "environment": "Open forest beneath twilight",
+        "objects_and_characters": [
+          "Dinosaur silhouettes",
+          "Ridge line"
+        ],
+        "camera_position": "Wide low-angle silhouette composition",
+        "camera_movement": "Orbit",
+        "lighting_atmosphere": "Violet twilight with warm rim light",
+        "animation_instructions": "Dinosaurs gently turn and breathe",
+        "transition": "fade",
+        "sound_design": "Wind and distant calls",
+        "visual": {
+          "environment": "forest",
+          "background": "#28294f",
+          "ground": "#202b25",
+          "props": [
+            {
+              "kind": "dinosaur",
+              "name": "",
+              "color": "#435744",
+              "position": [
+                -2.0,
+                0.0,
+                -5.0
+              ],
+              "rotation": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "scale": [
+                1.4,
+                1.4,
+                1.4
+              ],
+              "motion": "still"
+            },
+            {
+              "kind": "dinosaur",
+              "name": "",
+              "color": "#596747",
+              "position": [
+                2.0,
+                0.0,
+                -7.0
+              ],
+              "rotation": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "scale": [
+                0.9,
+                0.9,
+                0.9
+              ],
+              "motion": "walk"
+            }
+          ],
+          "camera_position": [
+            0.0,
+            2.0,
+            16.0
+          ],
+          "camera_look_at": [
+            0.0,
+            2.0,
+            -5.0
+          ],
+          "camera_movement": "orbit",
+          "light_color": "#ffb987",
+          "light_intensity": 1.1,
+          "fog_color": "#3c3856",
+          "fog_density": 0.016,
+          "transition": "fade"
+        }
+      }
+    ],
+    "ending": "Earth remembers its oldest inhabitants."
+  },
+  "id": "4fe4d07cd5ec",
+  "created_at": 1794304444.8062973
+}

@@ -70,3 +70,12 @@ test('all nine bundled scene builders remain imported and present', () => {
   for (const name of ['plaza', 'hospital', 'cemetery', 'street']) { assert.match(a, new RegExp(`export function ${name}\\(`)); assert.match(main, new RegExp(`\\b${name}\\b`)); }
   for (const name of ['market', 'park', 'ocean', 'launch', 'earth']) { assert.match(b, new RegExp(`export function ${name}\\(`)); assert.match(main, new RegExp(`\\b${name}\\b`)); }
 });
+
+test('dynamic scene updates consume absolute local time and stay independent of render chunk boundaries', () => {
+  const interpreter = fs.readFileSync('engine/what-if/src/interpreter.js', 'utf8');
+  const main = fs.readFileSync('engine/what-if/src/main.js', 'utf8');
+  const parallel = fs.readFileSync('scripts/render_parallel.mjs', 'utf8');
+  assert.match(interpreter, /eventTimeline\.evaluate\(Math\.max\(0,Math\.min\(t,duration\)\)/);
+  assert.match(main, /shot\.update\(local, s\.dur\)/);
+  assert.match(parallel, /frameRanges\(total, FPS, N\)/);
+});

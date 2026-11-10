@@ -1,0 +1,87 @@
+{
+  "schema_version": 2,
+  "topic": "A dinosaur enters a forest clearing and follows a running human",
+  "duration": 30,
+  "tone": "Playful adventure",
+  "audience": "General audience",
+  "narrative_style": "Procedural event integration verification",
+  "title": "Dinosaur Pursuit Event Check",
+  "logline": "A dinosaur enters a clearing, sees a human run, and follows close behind.",
+  "opening_hook": "The forest trembles as a dinosaur steps into the clearing.",
+  "narration": "A dinosaur enters the clearing. A human runs across its path. The dinosaur follows the human through the forest.",
+  "actors": [
+    { "id": "dinosaur", "name": "Dinosaur" },
+    { "id": "human", "name": "Human" }
+  ],
+  "scenes": [
+    {
+      "id": "pursuit-test",
+      "title": "The pursuit",
+      "duration": 10,
+      "narration": "A dinosaur enters, then follows a running human.",
+      "captions": ["A sudden visitor", "Run!"],
+      "environment": "Forest clearing",
+      "objects_and_characters": ["Dinosaur", "Human"],
+      "camera_position": "Wide view of a forest clearing",
+      "camera_movement": "Static",
+      "lighting_atmosphere": "Clear daylight through trees",
+      "animation_instructions": "The dinosaur enters, the human runs, and the dinosaur follows.",
+      "transition": "cut",
+      "sound_design": "Quiet forest ambience",
+      "actor_ids": ["dinosaur", "human"],
+      "visual": {
+        "environment": "plain",
+        "background": "#24364d",
+        "ground": "#526443",
+        "props": [
+          { "id": "dinosaur", "actor_id": "dinosaur", "kind": "dinosaur", "color": "#f04b3e", "position": [0, 0, -5], "rotation": [0, -1.5707963267948966, 0], "scale": [1.2, 1.2, 1.2], "visible": false },
+          { "id": "human", "actor_id": "human", "kind": "human", "color": "#e6a15a", "position": [0, 0, 1] }
+        ],
+        "camera_position": [0, 4, 18],
+        "camera_look_at": [0, 1, -2],
+        "camera_movement": "static",
+        "light_color": "#fff0c9",
+        "light_intensity": 1.7,
+        "fog_color": "#24364d",
+        "fog_density": 0.01,
+        "transition": "cut"
+      },
+      "events": [
+        { "id": "dinosaur-entry", "type": "enter", "actor_id": "dinosaur", "start": 0, "duration": 2, "from_position": [-8, 0, -5], "to_position": [0, 0, -5], "easing": "linear" },
+        { "id": "human-run", "type": "run", "actor_id": "human", "start": 2, "duration": 4, "from_position": [0, 0, 1], "to_position": [3.5, 0, 1], "easing": "ease_in_out" },
+        { "id": "dinosaur-follow", "type": "follow", "actor_id": "dinosaur", "target_id": "human", "start": 4, "duration": 6, "parameters": { "offset": [-1.5, 0, -2] } }
+      ]
+    },
+    {
+      "id": "continuation-a",
+      "title": "After the clearing",
+      "duration": 10,
+      "narration": "The forest grows quiet again.",
+      "captions": [],
+      "environment": "Forest beyond the clearing",
+      "objects_and_characters": [],
+      "camera_position": "Wide view",
+      "camera_movement": "Static",
+      "lighting_atmosphere": "Soft daylight",
+      "animation_instructions": "Hold on the forest.",
+      "transition": "cut",
+      "sound_design": "Forest ambience"
+    },
+    {
+      "id": "continuation-b",
+      "title": "The trail",
+      "duration": 10,
+      "narration": "Footprints lead away into the trees.",
+      "captions": [],
+      "environment": "Forest trail",
+      "objects_and_characters": [],
+      "camera_position": "Wide view",
+      "camera_movement": "Static",
+      "lighting_atmosphere": "Warm evening light",
+      "animation_instructions": "Hold on the trail.",
+      "transition": "cut",
+      "sound_design": "Distant birds"
+    }
+  ],
+  "ending": "The forest settles after the encounter."
+}

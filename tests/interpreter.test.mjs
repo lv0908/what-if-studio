@@ -65,3 +65,39 @@ test('camera movements and supported prop motions are deterministic', () => {
     else assert.notDeepEqual(prop.position.toArray(), [0, 1, -5], motion);
   }
 });
+
+test('dynamic scene events drive identified instances and remain stable when seeking out of order', () => {
+  const shot = buildDynamicScene({
+    id: 'forest', duration: 6,
+    events: [
+      { id: 'dino-entry', type: 'enter', actor_id: 'dino', start: 0, duration: 2, from_position: [-8, 0, -5], to_position: [0, 0, -5] },
+      { id: 'human-run', type: 'run', actor_id: 'human', start: 2, duration: 2, from_position: [0, 0, 1], to_position: [5, 0, 1] },
+      { id: 'look', type: 'look_at', actor_id: 'human', target_id: 'dino', start: 4, duration: 0 },
+    ],
+    visual: { environment: 'plain', props: [
+      { id: 'dino', kind: 'dinosaur', position: [0, 0, -5], visible: false },
+      { id: 'human', kind: 'human', position: [0, 0, 1] },
+    ] },
+  });
+  const dino = shot.scene.children.find((o) => o.userData.instanceId === 'dino');
+  const human = shot.scene.children.find((o) => o.userData.instanceId === 'human');
+  shot.update(1, 6); const entry = dino.position.toArray();
+  shot.update(5, 6); const finalHuman = human.position.toArray();
+  shot.update(0, 6); assert.deepEqual(dino.position.toArray(), [-8, 0, -5]);
+  shot.update(1, 6); assert.deepEqual(dino.position.toArray(), entry);
+  shot.update(5, 6); assert.deepEqual(human.position.toArray(), finalHuman);
+  assert.equal(dino.visible, true);
+  assert.equal(human.userData.motion, 'still');
+});
+
+test('story actor IDs alias explicit prop IDs and events update only the targeted procedural instance', () => {
+  const shot = buildDynamicScene({ duration: 3, events: [{ id: 'move', type: 'move', actor_id: 'traveler', start: 0, duration: 2, to_position: [2, 0, 0] }], visual: { props: [
+    { id: 'traveler-prop', actor_id: 'traveler', kind: 'human', position: [0, 0, 0] },
+    { id: 'tree-prop', kind: 'tree', position: [5, 0, 0] },
+  ] } });
+  const traveler = shot.scene.children.find((o) => o.userData.actorId === 'traveler');
+  const tree = shot.scene.children.find((o) => o.userData.instanceId === 'tree-prop');
+  shot.update(1, 3);
+  assert.deepEqual(traveler.position.toArray(), [1, 0, 0]);
+  assert.deepEqual(tree.position.toArray(), [5, 0, 0]);
+});

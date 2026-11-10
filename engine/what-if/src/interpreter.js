@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { compileEventTimeline } from './event_timeline.js';
 
 const material = (color, roughness = 0.9) => new THREE.MeshStandardMaterial({ color, roughness, flatShading: true });
 const sphere = (group, color, scale, position) => { const m = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), material(color)); m.scale.set(...scale); m.position.set(...position); group.add(m); return m; };
@@ -32,7 +33,7 @@ function makeProp(p) {
     const hull=new THREE.Mesh(new THREE.CapsuleGeometry(.55,1.5,4,8),material(p.color)); hull.rotation.z=Math.PI/2; root.add(hull);
     const glass=new THREE.Mesh(new THREE.SphereGeometry(.32,10,8),new THREE.MeshStandardMaterial({color:'#81d9e5',metalness:.4,roughness:.15}));glass.position.set(0,.28,-.25);root.add(glass);
   }
-  root.position.set(...p.position); root.rotation.set(...p.rotation); root.scale.set(...p.scale); root.userData.motion=p.motion; root.userData.baseY=root.position.y; root.userData.baseX=root.position.x;
+  root.position.set(...p.position); root.rotation.set(...p.rotation); root.scale.set(...p.scale); root.visible=p.visible!==false; root.userData.motion=p.motion; root.userData.instanceId=p.id; root.userData.actorId=p.actor_id; root.userData.baseY=root.position.y; root.userData.baseX=root.position.x;
   return root;
 }
 
@@ -63,7 +64,12 @@ export function buildDynamicScene(data) {
   const scene=new THREE.Scene();
   const v={environment:'plain',background:'#101827',ground:'#27352d',props:[],camera_position:[0,2.2,12],camera_look_at:[0,1.4,0],camera_movement:'static',light_color:'#ffffff',light_intensity:1.5,fog_color:'#101827',fog_density:.012,transition:'fade',...(data.visual||{})};
   environment(scene,v);
-  for(const prop of v.props||[]) scene.add(makeProp(prop));
+  const props=(v.props||[]).map((prop,index)=>({...prop,id:prop.id||prop.actor_id||`${data.id||'scene'}-prop-${index+1}`}));
+  for(const prop of props) scene.add(makeProp(prop));
+  const eventTimeline=compileEventTimeline(props,data.events||[],data.duration||300);
   const camera=new THREE.PerspectiveCamera(45,9/16,.1,1000);camera.position.set(...(v.camera_position||[0,2.2,12]));camera.lookAt(...(v.camera_look_at||[0,1.4,0]));
-  return {scene,camera,bloom:[.35,.45,.8],exposure:1,update(t,duration){const u=t/duration;camera.position.set(...(v.camera_position||[0,2.2,12]));if(v.camera_movement==='push')camera.position.z-=u*2;if(v.camera_movement==='pan')camera.position.x+=Math.sin(u*Math.PI)*2;if(v.camera_movement==='orbit'){camera.position.x+=Math.sin(u*Math.PI*2)*4;camera.position.z+=Math.cos(u*Math.PI*2)*4;}camera.lookAt(...(v.camera_look_at||[0,1.4,0]));scene.traverse(o=>{if(!o.userData.motion)return;const m=o.userData.motion;if(m==='bob'||m==='swim'||m==='fly')o.position.y=o.userData.baseY+Math.sin(t*2+o.userData.baseX)*.22;if(m==='spin')o.rotation.y=t*.5;if(m==='walk'||m==='fly')o.position.x=o.userData.baseX+Math.sin(t*1.3+o.userData.baseY)*.22;});}};
+  const objects=new Map();
+  scene.traverse((object)=>{if(object.userData.instanceId)objects.set(object.userData.instanceId,object);});
+  const eventStates=new Map();
+  return {scene,camera,bloom:[.35,.45,.8],exposure:1,update(t,duration){const u=t/duration;camera.position.set(...(v.camera_position||[0,2.2,12]));if(v.camera_movement==='push')camera.position.z-=u*2;if(v.camera_movement==='pan')camera.position.x+=Math.sin(u*Math.PI)*2;if(v.camera_movement==='orbit'){camera.position.x+=Math.sin(u*Math.PI*2)*4;camera.position.z+=Math.cos(u*Math.PI*2)*4;}camera.lookAt(...(v.camera_look_at||[0,1.4,0]));const states=eventTimeline.evaluate(Math.max(0,Math.min(t,duration)),eventStates);for(const [id,state] of states){const object=objects.get(id);if(!object)continue;object.position.set(...state.position);object.rotation.set(...state.rotation);object.scale.set(...state.scale);object.visible=state.visible;object.userData.motion=state.motion;}}};
 }

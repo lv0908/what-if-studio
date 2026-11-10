@@ -1,0 +1,8 @@
+30s = 900 frames at 30fps, 2 chunks: 0-450, 450-900
+10:35:15 #0 frame 30/450  29s elapsed | #1 frame 30/450  32s elapsed
+10:36:15 #0 frame 120/450  114s elapsed | #1 frame 120/450  117s elapsed
+10:37:15 #0 frame 180/450  162s elapsed | #1 frame 180/450  161s elapsed
+10:38:15 #0 frame 240/450  213s elapsed | #1 frame 270/450  225s elapsed
+10:39:15 #0 frame 330/450  287s elapsed | #1 frame 360/450  287s elapsed
+10:40:15 #0 frame 390/450  344s elapsed | #1 frame 420/450  335s elapsed
+wrote /data/projects/c3aa2c6d561f/what-if/media/final.mp4

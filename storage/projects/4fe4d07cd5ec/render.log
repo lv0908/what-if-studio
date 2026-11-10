@@ -1,0 +1,4 @@
+30s = 900 frames at 30fps, 2 chunks: 0-450, 450-900
+09:55:52 #0 frame 0/450  4s elapsed | #1 frame 0/450  5s elapsed
+09:56:52 #0 frame 60/450  96s elapsed | #1 frame 60/450  97s elapsed
+09:57:52 #0 frame 90/450  166s elapsed | #1 frame 90/450  170s elapsed
