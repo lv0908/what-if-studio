@@ -8,6 +8,8 @@ import { plaza, hospital, cemetery, street } from './scenes-a.js';
 import { market, park, ocean, launch, earth } from './scenes-b.js';
 import { clamp, smooth, lerp } from './lib.js';
 import { buildDynamicScene } from './interpreter.js';
+import { validatePreviewSeekMessage } from './preview_protocol.js';
+import { playbackStartupTimestamp } from './preview_time.js';
 
 /* ---------- the story ---------- */
 // pop: world population at the start/end of each shot. Assumes ~134M births a year at first,
@@ -31,6 +33,16 @@ export let DURATION = acc;
 const canvas = document.getElementById('gl');
 const params = new URLSearchParams(location.search);
 const RENDER_MODE = params.has('render');
+const previewToken = new URLSearchParams(location.hash.slice(1)).get('preview');
+const PREVIEW_MODE = Boolean(previewToken);
+const audioElement = document.getElementById('audio');
+if (PREVIEW_MODE) {
+  audioElement.removeAttribute('src');
+  audioElement.preload = 'none';
+  document.body.classList.add('preview');
+} else if (audioElement.dataset.src) {
+  audioElement.src = audioElement.dataset.src;
+}
 const W = Number(params.get('w') || 1080), H = Number(params.get('h') || 1920);
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: RENDER_MODE, powerPreference: 'high-performance' });
 renderer.setPixelRatio(1);
@@ -92,7 +104,12 @@ async function init() {
     document.fonts.load('700 40px "Space Mono"'), document.fonts.load('800 40px Inter'), document.fonts.load('600 40px Inter'),
   ]);
   if (params.has('story')) {
-    const response = await fetch('./story.json');
+    const response = PREVIEW_MODE
+      ? await fetch('/api/scene-previews/story', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preview_id: previewToken }),
+      })
+      : await fetch('./story.json');
     if (!response.ok) throw new Error('Approved storyboard could not be loaded.');
     const story = await response.json();
     let start = 0;
@@ -162,12 +179,33 @@ window.addEventListener('resize', fit); fit();
 
 window.__whatif = { renderAt, dispose, get DURATION() { return DURATION; }, get TIMELINE() { return TIMELINE; }, ready: init() };
 
+if (PREVIEW_MODE && window.parent !== window) {
+  window.addEventListener('message', (event) => {
+    const seek = validatePreviewSeekMessage(event, {
+      origin: location.origin,
+      source: window.parent,
+      timeline: TIMELINE,
+      previewId: previewToken,
+    });
+    if (seek) renderAt(seek.scene.start + seek.local_time);
+  });
+}
+
 /* ---------- interactive player ---------- */
 if (!RENDER_MODE) {
   const audio = $('audio'), playBtn = $('play'), bar = $('bar');
-  let playing = false, t0 = 0, offset = Number(params.get('t') || 0);
+  let playing = false, t0 = 0, offset = 0;
   const now = () => (audio && !audio.error && audio.readyState > 0 && !audio.paused ? audio.currentTime : offset + (playing ? (performance.now() - t0) / 1000 : 0));
-  window.__whatif.ready.then(() => { renderAt(offset); playBtn.classList.add('ready'); });
+  window.__whatif.ready.then(() => {
+    offset = playbackStartupTimestamp({
+      previewMode: PREVIEW_MODE,
+      explicitTimestamp: params.has('t') ? Number(params.get('t') || 0) : null,
+      sceneDuration: TIMELINE[0]?.dur,
+    });
+    renderAt(offset);
+    playBtn.classList.add('ready');
+    if (PREVIEW_MODE && window.parent !== window) window.parent.postMessage({ type: 'scene-preview:ready', preview_id: previewToken }, location.origin);
+  });
   const start = () => {
     if (!built) return;
     playBtn.classList.add('hidden');

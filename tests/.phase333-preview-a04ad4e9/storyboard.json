@@ -1,0 +1,31 @@
+{
+  "schema_version": 2,
+  "topic": "Synthetic preview verification",
+  "duration": 30,
+  "tone": "Neutral",
+  "audience": "Test",
+  "narrative_style": "Storyboard preview",
+  "title": "Preview Fixture",
+  "logline": "A minimal scene for preview endpoint tests.",
+  "opening_hook": "",
+  "narration": "A synthetic scene.",
+  "scenes": [
+    {
+      "id": "scene-preview-test",
+      "title": "Fixture Scene",
+      "duration": 30.0,
+      "narration": "A synthetic scene.",
+      "captions": [],
+      "environment": "Plain test environment",
+      "objects_and_characters": [],
+      "camera_position": "Static centered view",
+      "camera_movement": "static",
+      "lighting_atmosphere": "Neutral light",
+      "animation_instructions": "No animation",
+      "transition": "cut",
+      "sound_design": "None",
+      "visual": {}
+    }
+  ],
+  "ending": ""
+}

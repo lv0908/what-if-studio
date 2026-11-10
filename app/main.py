@@ -4,20 +4,39 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pathlib import Path
 from typing import Literal
-from threading import Thread, Lock, Event
-import shutil, subprocess, uuid, json, re, os, time, signal, math
+from contextlib import asynccontextmanager
+from threading import Thread
+import logging, shutil, subprocess, uuid, json, re, os, time, signal, math
 from scripts.story_scale import scale_timeline
-from app.render_progress import apply_render_progress, parse_render_progress
+from app.scene_preview import PreviewCapacityError, PreviewStoryTooLarge, ScenePreviewSessions
+from app.scene_render import SceneFrameRangeError, scene_frame_ranges, storyboard_fingerprint, validate_audio_probe
+from app.render_jobs import (
+    JobPersistenceError, RenderJobRegistry, RenderJobStore,
+    publish_file_without_overwrite, rollback_published_file,
+)
 
-ROOT = Path('/app')
+ROOT = Path(__file__).resolve().parents[1]
 PROJECTS = Path(os.getenv('PROJECTS_DIR', '/data/projects'))
 STORY_PROJECTS = Path(os.getenv('STORY_PROJECTS_DIR', str(PROJECTS.parent / 'story-projects')))
 EXPORTS = Path(os.getenv('EXPORTS_DIR', '/data/exports'))
+JOB_RECORDS = Path(os.getenv('JOBS_DIR', str(PROJECTS.parent / 'jobs')))
 TEMPLATE = ROOT / 'engine' / 'what-if'
 SCRIPTS = ROOT / 'scripts'
 PROJECTS.mkdir(parents=True, exist_ok=True); STORY_PROJECTS.mkdir(parents=True, exist_ok=True); EXPORTS.mkdir(parents=True, exist_ok=True)
-app = FastAPI(title='What If Studio API', version='0.1.0')
-JOBS = {}; STOP_EVENTS = {}; PROCESSES = {}; LOCK = Lock()
+JOB_MANAGER = RenderJobRegistry(RenderJobStore(JOB_RECORDS))
+PREVIEW_SESSIONS = ScenePreviewSessions()
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    # Restore history before serving requests. Recovery marks active records interrupted
+    # and deliberately does not restart workers.
+    JOB_MANAGER.recover()
+    yield
+
+
+app = FastAPI(title='What If Studio API', version='0.1.0', lifespan=lifespan)
+app.mount('/engine', StaticFiles(directory=ROOT / 'engine'), name='engine')
 
 class EpisodeRequest(BaseModel):
     topic: str = Field(min_length=5, max_length=500)
@@ -25,6 +44,25 @@ class EpisodeRequest(BaseModel):
     mood: str = Field(default='dark', pattern='^(dark|hopeful|tense)$')
     resolution: Literal[480, 720, 1080] = 720
     story: 'StoryDocument | None' = None
+
+
+class ScenePreviewRequest(BaseModel):
+    model_config = {'extra': 'forbid'}
+    story: 'StoryDocument'
+
+
+class ScenePreviewStoryRequest(BaseModel):
+    model_config = {'extra': 'forbid'}
+    preview_id: str = Field(min_length=32, max_length=128)
+
+
+class SceneRenderRequest(BaseModel):
+    model_config = {'extra': 'forbid'}
+    story: 'StoryDocument'
+    scene_id: str = Field(min_length=1, max_length=64, pattern=r'^[a-zA-Z0-9_-]+$')
+    resolution: Literal[480, 720, 1080] = 720
+    mood: str = Field(default='dark', pattern='^(dark|hopeful|tense)$')
+    source_project_id: str | None = Field(default=None, pattern=r'^[a-f0-9]{12}$')
 
 
 class SceneProp(BaseModel):
@@ -394,6 +432,9 @@ class StoryDocument(BaseModel):
 
 StoryScene.model_rebuild()
 EpisodeRequest.model_rebuild()
+ScenePreviewRequest.model_rebuild()
+ScenePreviewStoryRequest.model_rebuild()
+SceneRenderRequest.model_rebuild()
 
 
 class StoryProjectRequest(BaseModel):
@@ -422,13 +463,14 @@ def run_job(job_id: str, req: EpisodeRequest):
     project = PROJECTS / job_id
     log_stream = None
     try:
-        if STOP_EVENTS[job_id].is_set():
-            with LOCK: JOBS[job_id].update(status='stopped', message='Rendering stopped by user')
+        if JOB_MANAGER.stop_requested(job_id):
+            JOB_MANAGER.acknowledge_stop(job_id)
             return
-        with LOCK: JOBS[job_id].update(status='preparing', stage='preparing')
+        if not JOB_MANAGER.transition(job_id, 'preparing', {'stage': 'preparing'}):
+            return
         shutil.copytree(TEMPLATE, project / 'what-if')
-        if STOP_EVENTS[job_id].is_set():
-            with LOCK: JOBS[job_id].update(status='stopped', message='Rendering stopped by user')
+        if JOB_MANAGER.stop_requested(job_id):
+            JOB_MANAGER.acknowledge_stop(job_id)
             return
         episode = project / 'what-if'
         # Keep the approved storyboard with this render, independent of later project edits.
@@ -436,24 +478,43 @@ def run_job(job_id: str, req: EpisodeRequest):
         if req.story:
             validate_story(req.story)
             (episode / 'story.json').write_text(req.story.model_dump_json(), encoding='utf-8')
-            with LOCK: JOBS[job_id].update(topic=req.story.title, duration=req.story.duration, total_frames=round(req.story.duration * 30))
+            JOB_MANAGER.update_fields(job_id, {'topic': req.story.title, 'duration': req.story.duration,
+                                               'total_frames': round(req.story.duration * 30)})
         else:
             scale_timeline(episode / 'src/main.js', req.duration)
-        with LOCK: JOBS[job_id].update(status='soundtrack', stage='soundtrack', progress=max(JOBS[job_id]['progress'], 5), message='Generating original soundtrack')
+        if JOB_MANAGER.stop_requested(job_id):
+            JOB_MANAGER.acknowledge_stop(job_id)
+            return
+        current = JOB_MANAGER.snapshot(job_id)
+        if not JOB_MANAGER.transition(job_id, 'soundtrack', {
+            'stage': 'soundtrack', 'progress': max(current['progress'], 5),
+            'message': 'Generating original soundtrack',
+        }):
+            return
         soundtrack = subprocess.Popen(['python3', str(SCRIPTS/'soundtrack.py'), '--project', str(episode), '--mood', req.mood,
                         '--sfx', 'countdown+fireworks+crowd, monitor, wind, murmur, ticks, wind, ocean, rocket, shimmer'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-        with LOCK: PROCESSES[job_id] = soundtrack
+        if not JOB_MANAGER.register_process(job_id, soundtrack):
+            soundtrack.terminate()
+            soundtrack.wait(timeout=10)
+            JOB_MANAGER.acknowledge_stop(job_id)
+            return
         while soundtrack.poll() is None:
-            if STOP_EVENTS[job_id].is_set():
+            if JOB_MANAGER.stop_requested(job_id):
                 soundtrack.terminate(); soundtrack.wait(timeout=10)
-                with LOCK: JOBS[job_id].update(status='stopped', message='Rendering stopped by user')
+                JOB_MANAGER.acknowledge_stop(job_id)
                 return
             time.sleep(0.25)
-        if STOP_EVENTS[job_id].is_set():
-            with LOCK: JOBS[job_id].update(status='stopped', message='Rendering stopped by user')
+        JOB_MANAGER.clear_process(job_id)
+        if JOB_MANAGER.stop_requested(job_id):
+            JOB_MANAGER.acknowledge_stop(job_id)
             return
         if soundtrack.returncode: raise RuntimeError('Soundtrack generation failed.')
-        with LOCK: JOBS[job_id].update(status='rendering', stage='rendering', progress=max(JOBS[job_id]['progress'], 10), message='Rendering 3D scenes with Chromium and FFmpeg')
+        current = JOB_MANAGER.snapshot(job_id)
+        if not JOB_MANAGER.transition(job_id, 'rendering', {
+            'stage': 'rendering', 'progress': max(current['progress'], 10),
+            'message': 'Rendering 3D scenes with Chromium and FFmpeg',
+        }):
+            return
         log_path = project / 'render.log'
         # Portrait export sizes: 480p, 720p (default), and 1080p.
         width = req.resolution
@@ -462,7 +523,12 @@ def run_job(job_id: str, req: EpisodeRequest):
         proc = subprocess.Popen(['node', str(SCRIPTS/'render_parallel.mjs'), '--project', str(episode), '--chunks', os.getenv('RENDER_CHUNKS','2'),
                                  '--w', str(width), '--h', str(height), '--fps','30','--out','media/final.mp4'],
                                 stdout=log_stream, stderr=subprocess.STDOUT)
-        with LOCK: PROCESSES[job_id] = proc
+        if not JOB_MANAGER.register_process(job_id, proc):
+            proc.send_signal(signal.SIGINT)
+            try: proc.wait(timeout=30)
+            except subprocess.TimeoutExpired: proc.kill(); proc.wait()
+            JOB_MANAGER.acknowledge_stop(job_id)
+            return
         log_offset = 0
         log_buffer = ''
 
@@ -479,41 +545,244 @@ def run_job(job_id: str, req: EpisodeRequest):
             lines = log_buffer.split('\n')
             log_buffer = lines.pop()
             for line in lines:
-                event = parse_render_progress(line.rstrip('\r'), JOBS[job_id]['total_frames'])
-                if event is not None:
-                    with LOCK:
-                        apply_render_progress(JOBS[job_id], event)
+                JOB_MANAGER.update_progress_line(job_id, line.rstrip('\r'))
 
         while proc.poll() is None:
-            if STOP_EVENTS[job_id].is_set():
+            if JOB_MANAGER.stop_requested(job_id):
                 proc.send_signal(signal.SIGINT)
                 try: proc.wait(timeout=30)
                 except subprocess.TimeoutExpired: proc.kill(); proc.wait()
-                with LOCK: JOBS[job_id].update(status='stopped', message='Rendering stopped by user')
+                JOB_MANAGER.clear_process(job_id)
+                JOB_MANAGER.acknowledge_stop(job_id)
                 return
             time.sleep(1)
             consume_render_progress()
+        JOB_MANAGER.clear_process(job_id)
         if log_stream:
             log_stream.flush()
         consume_render_progress()
         if log_buffer:
-            event = parse_render_progress(log_buffer.rstrip('\r'), JOBS[job_id]['total_frames'])
-            if event is not None:
-                with LOCK:
-                    apply_render_progress(JOBS[job_id], event)
-        if STOP_EVENTS[job_id].is_set():
-            with LOCK: JOBS[job_id].update(status='stopped', message='Rendering stopped by user')
+            JOB_MANAGER.update_progress_line(job_id, log_buffer.rstrip('\r'))
+        if JOB_MANAGER.stop_requested(job_id):
+            JOB_MANAGER.acknowledge_stop(job_id)
             return
         if proc.returncode != 0: raise RuntimeError('Renderer failed. Inspect render.log in the project folder.')
         final = episode / 'media/final.mp4'
-        shutil.copy2(final, EXPORTS / f'{job_id}.mp4')
-        with LOCK: JOBS[job_id].update(status='completed', stage='complete', completed_frames=JOBS[job_id]['total_frames'], progress=100, message='Video ready', video=f'/api/episodes/{job_id}/video')
+        export = EXPORTS / f'{job_id}.mp4'
+        publication = {'temporary': None, 'published': False}
+
+        def publish_output():
+            publication['temporary'] = publish_file_without_overwrite(final, export)
+            publication['published'] = True
+            return f'/api/episodes/{job_id}/video'
+
+        def rollback_output():
+            temporary = publication['temporary']
+            if publication['published'] and temporary is not None:
+                rollback_published_file(temporary, export)
+                publication['published'] = False
+
+        try:
+            JOB_MANAGER.finish_success(job_id, publish_output, rollback_output)
+        except Exception:
+            # Also cover failures inside the publisher after the link was created.
+            try:
+                rollback_output()
+            except OSError:
+                logging.exception('Could not roll back published output for render job %s', job_id)
+            raise
+        finally:
+            temporary = publication['temporary']
+            if temporary is not None:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    logging.exception('Could not remove staged output for render job %s', job_id)
     except Exception as e:
-        with LOCK: JOBS[job_id].update(status='failed', stage='failed', progress=min(JOBS[job_id].get('progress', 0), 99), message=str(e))
+        try:
+            JOB_MANAGER.finish_failure(job_id, str(e))
+        except Exception:
+            logging.exception('Could not persist terminal state for render job %s', job_id)
     finally:
         if log_stream:
             log_stream.close()
-        with LOCK: PROCESSES.pop(job_id, None)
+        JOB_MANAGER.clear_process(job_id)
+
+
+def validate_scene_soundtrack(soundtrack: Path, required_end_seconds: float):
+    if not soundtrack.is_file():
+        raise FileNotFoundError('Generated soundtrack is missing; scene render requires audio.')
+    probe = subprocess.run(
+        ['ffprobe', '-v', 'error', '-select_streams', 'a:0',
+         '-show_entries', 'stream=codec_type,duration', '-show_entries', 'format=duration',
+         '-of', 'json', str(soundtrack)],
+        check=True, capture_output=True, text=True,
+    )
+    details = json.loads(probe.stdout)
+    try:
+        validate_audio_probe(details, required_end_seconds, 30)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+
+
+def run_scene_job(job_id: str, req: SceneRenderRequest, frame_range: dict):
+    project = PROJECTS / job_id
+    log_stream = None
+    try:
+        if JOB_MANAGER.stop_requested(job_id):
+            JOB_MANAGER.acknowledge_stop(job_id)
+            return
+        if not JOB_MANAGER.transition(job_id, 'preparing', {'stage': 'preparing'}):
+            return
+        shutil.copytree(TEMPLATE, project / 'what-if')
+        episode = project / 'what-if'
+        (project / 'episode.json').write_text(json.dumps({
+            **req.model_dump(mode='json'), 'id': job_id, 'render_kind': 'scene',
+            'scene_id': req.scene_id, 'scene_duration': frame_range['scene_duration'],
+            'rendered_duration': frame_range['rendered_duration'],
+            'scene_start_frame': frame_range['start_frame'], 'scene_end_frame': frame_range['end_frame'],
+            'created_at': time.time(),
+        }, ensure_ascii=False, indent=2), encoding='utf-8')
+        (episode / 'story.json').write_text(req.story.model_dump_json(), encoding='utf-8')
+        # The existing soundtrack generator reads the bundled TIMELINE from main.js.
+        # Scale that isolated copy to the storyboard's actual cumulative duration so
+        # scene offsets address the same episode-time interval as the renderer.
+        scale_timeline(episode / 'src' / 'main.js', sum(scene.duration for scene in req.story.scenes))
+
+        if JOB_MANAGER.stop_requested(job_id):
+            JOB_MANAGER.acknowledge_stop(job_id)
+            return
+        current = JOB_MANAGER.snapshot(job_id)
+        if not JOB_MANAGER.transition(job_id, 'soundtrack', {
+            'stage': 'soundtrack', 'progress': max(current['progress'], 5),
+            'message': 'Generating full-episode soundtrack for selected scene',
+        }):
+            return
+        soundtrack = subprocess.Popen([
+            'python3', str(SCRIPTS / 'soundtrack.py'), '--project', str(episode), '--mood', req.mood,
+            '--sfx', 'countdown+fireworks+crowd, monitor, wind, murmur, ticks, wind, ocean, rocket, shimmer',
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        if not JOB_MANAGER.register_process(job_id, soundtrack):
+            soundtrack.terminate()
+            soundtrack.wait(timeout=10)
+            JOB_MANAGER.acknowledge_stop(job_id)
+            return
+        while soundtrack.poll() is None:
+            if JOB_MANAGER.stop_requested(job_id):
+                soundtrack.terminate()
+                soundtrack.wait(timeout=10)
+                JOB_MANAGER.acknowledge_stop(job_id)
+                return
+            time.sleep(0.25)
+        JOB_MANAGER.clear_process(job_id)
+        if JOB_MANAGER.stop_requested(job_id):
+            JOB_MANAGER.acknowledge_stop(job_id)
+            return
+        if soundtrack.returncode:
+            raise RuntimeError('Scene soundtrack generation failed; no scene video was published.')
+
+        audio_end = frame_range['end_frame'] / 30
+        validate_scene_soundtrack(episode / 'media' / 'soundtrack.m4a', audio_end)
+
+        current = JOB_MANAGER.snapshot(job_id)
+        if not JOB_MANAGER.transition(job_id, 'rendering', {
+            'stage': 'rendering', 'progress': max(current['progress'], 10),
+            'message': 'Rendering selected scene with matching soundtrack interval',
+        }):
+            return
+        width = req.resolution
+        height = round((width * 16 / 9) / 2) * 2
+        log_path = project / 'render.log'
+        log_stream = log_path.open('w', encoding='utf-8')
+        proc = subprocess.Popen([
+            'node', str(SCRIPTS / 'render_parallel.mjs'), '--project', str(episode),
+            '--chunks', os.getenv('RENDER_CHUNKS', '2'), '--w', str(width), '--h', str(height),
+            '--fps', '30', '--from-frame', str(frame_range['start_frame']),
+            '--to-frame', str(frame_range['end_frame']), '--require-audio', '--out', 'media/scene-final.mp4',
+        ], stdout=log_stream, stderr=subprocess.STDOUT)
+        if not JOB_MANAGER.register_process(job_id, proc):
+            proc.send_signal(signal.SIGINT)
+            try: proc.wait(timeout=30)
+            except subprocess.TimeoutExpired: proc.kill(); proc.wait()
+            JOB_MANAGER.acknowledge_stop(job_id)
+            return
+
+        log_offset = 0
+        log_buffer = ''
+
+        def consume_progress():
+            nonlocal log_offset, log_buffer
+            try:
+                with log_path.open('rb') as log_file:
+                    log_file.seek(log_offset)
+                    appended = log_file.read()
+                    log_offset = log_file.tell()
+            except OSError:
+                return
+            log_buffer += appended.decode('utf-8', errors='replace')
+            lines = log_buffer.split('\n')
+            log_buffer = lines.pop()
+            for line in lines:
+                JOB_MANAGER.update_progress_line(job_id, line.rstrip('\r'))
+
+        while proc.poll() is None:
+            if JOB_MANAGER.stop_requested(job_id):
+                proc.send_signal(signal.SIGINT)
+                try: proc.wait(timeout=30)
+                except subprocess.TimeoutExpired: proc.kill(); proc.wait()
+                JOB_MANAGER.clear_process(job_id)
+                JOB_MANAGER.acknowledge_stop(job_id)
+                return
+            time.sleep(1)
+            consume_progress()
+        JOB_MANAGER.clear_process(job_id)
+        log_stream.flush()
+        consume_progress()
+        if log_buffer:
+            JOB_MANAGER.update_progress_line(job_id, log_buffer.rstrip('\r'))
+        if JOB_MANAGER.stop_requested(job_id):
+            JOB_MANAGER.acknowledge_stop(job_id)
+            return
+        if proc.returncode != 0:
+            raise RuntimeError('Scene renderer, soundtrack trim, or MP4 validation failed; no output was published.')
+
+        final = episode / 'media' / 'scene-final.mp4'
+        export = EXPORTS / f'{job_id}.mp4'
+        publication = {'temporary': None, 'published': False}
+
+        def publish_output():
+            publication['temporary'] = publish_file_without_overwrite(final, export)
+            publication['published'] = True
+            return f'/api/episodes/{job_id}/video'
+
+        def rollback_output():
+            temporary = publication['temporary']
+            if publication['published'] and temporary is not None:
+                rollback_published_file(temporary, export)
+                publication['published'] = False
+
+        try:
+            JOB_MANAGER.finish_success(job_id, publish_output, rollback_output)
+        except Exception:
+            try:
+                rollback_output()
+            except OSError:
+                logging.exception('Could not roll back scene output for job %s', job_id)
+            raise
+        finally:
+            temporary = publication['temporary']
+            if temporary is not None:
+                try: temporary.unlink(missing_ok=True)
+                except OSError: logging.exception('Could not remove staged scene output for job %s', job_id)
+    except Exception as exc:
+        try:
+            JOB_MANAGER.finish_failure(job_id, str(exc))
+        except Exception:
+            logging.exception('Could not persist scene-render failure for job %s', job_id)
+    finally:
+        if log_stream:
+            log_stream.close()
+        JOB_MANAGER.clear_process(job_id)
 
 @app.get('/', response_class=HTMLResponse)
 def home():
@@ -521,6 +790,30 @@ def home():
 
 @app.get('/api/health')
 def health(): return {'status':'ok','engine':'bundled-threejs','version':'0.1.0'}
+
+
+@app.post('/api/scene-previews', status_code=201)
+def create_scene_preview(req: ScenePreviewRequest):
+    story = validate_story(req.story)
+    try:
+        token, expires_at = PREVIEW_SESSIONS.create(story.model_dump(mode='json'))
+    except PreviewStoryTooLarge as exc:
+        raise HTTPException(413, str(exc)) from exc
+    except PreviewCapacityError as exc:
+        raise HTTPException(429, str(exc)) from exc
+    return {
+        'preview_id': token,
+        'preview_url': f'/engine/what-if/index.html?story=1#preview={token}',
+        'expires_at': expires_at,
+    }
+
+
+@app.post('/api/scene-previews/story')
+def get_scene_preview_story(req: ScenePreviewStoryRequest):
+    story = PREVIEW_SESSIONS.get(req.preview_id)
+    if story is None:
+        raise HTTPException(404, 'Preview session not found or expired')
+    return story
 
 
 @app.post('/api/story-projects/validate')
@@ -591,40 +884,119 @@ def create_episode(req: EpisodeRequest):
         validate_story(req.story)
         if req.story.duration != req.duration or req.story.topic != req.topic:
             raise HTTPException(422, 'Render topic and duration must match the approved storyboard.')
-    job_id = uuid.uuid4().hex[:12]
     total_frames = round(req.duration * 30)
-    with LOCK:
-        JOBS[job_id] = {'id':job_id,'topic':req.topic,'duration':req.duration,'status':'queued','progress':0,'message':'Queued',
-                        'stage':'queued','completed_frames':0,'total_frames':total_frames,'frame_progress_kind':'captured_and_submitted'}
-        STOP_EVENTS[job_id] = Event()
-    Thread(target=run_job, args=(job_id, req), daemon=True).start()
-    return JOBS[job_id]
+    for _ in range(10):
+        job_id = uuid.uuid4().hex[:12]
+        # Check only path existence; never inspect or alter an existing project or export.
+        if (PROJECTS / job_id).exists() or (EXPORTS / f'{job_id}.mp4').exists():
+            continue
+        job = {'id':job_id,'topic':req.topic,'duration':req.duration,'status':'queued','progress':0,'message':'Queued',
+               'stage':'queued','completed_frames':0,'total_frames':total_frames,'frame_progress_kind':'captured_and_submitted'}
+        worker = Thread(target=run_job, args=(job_id, req), daemon=True)
+        try:
+            JOB_MANAGER.create_and_start(job, worker.start)
+        except FileExistsError:
+            continue
+        except JobPersistenceError as exc:
+            raise HTTPException(503, 'Could not persist render job before starting the worker.') from exc
+        except Exception as exc:
+            if JOB_MANAGER.snapshot(job_id) is not None:
+                try: JOB_MANAGER.finish_failure(job_id, str(exc))
+                except Exception: logging.exception('Could not persist worker-start failure for %s', job_id)
+                return JOB_MANAGER.snapshot(job_id)
+            raise HTTPException(503, 'Could not create render job.') from exc
+        return JOB_MANAGER.snapshot(job_id)
+    raise HTTPException(503, 'Could not allocate a unique render job ID.')
+
+
+@app.post('/api/scene-renders', status_code=202)
+def create_scene_render(req: SceneRenderRequest):
+    story = validate_story(req.story)
+    story_data = story.model_dump(mode='json')
+    try:
+        ranges = scene_frame_ranges(story_data, 30)
+    except SceneFrameRangeError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    selected = ranges.get(req.scene_id)
+    if selected is None:
+        raise HTTPException(422, 'Selected scene does not exist in the storyboard.')
+
+    scene_index = next(index for index, scene in enumerate(story.scenes, start=1) if scene.id == req.scene_id)
+    scene = story.scenes[scene_index - 1]
+    total_frames = selected['end_frame'] - selected['start_frame']
+    rendered_duration = total_frames / 30
+    fingerprint = storyboard_fingerprint(story_data)
+    for _ in range(10):
+        job_id = uuid.uuid4().hex[:12]
+        if (PROJECTS / job_id).exists() or (EXPORTS / f'{job_id}.mp4').exists():
+            continue
+        job = {
+            'id': job_id,
+            'topic': story.topic,
+            'duration': rendered_duration,
+            'status': 'queued',
+            'progress': 0,
+            'message': f'Queued scene {scene_index}: {scene.title}',
+            'stage': 'queued',
+            'completed_frames': 0,
+            'total_frames': total_frames,
+            'frame_progress_kind': 'captured_and_submitted',
+            'render_kind': 'scene',
+            'scene_id': scene.id,
+            'scene_title': scene.title,
+            'scene_index': scene_index,
+            'scene_duration': scene.duration,
+            'rendered_duration': rendered_duration,
+            'scene_start_frame': selected['start_frame'],
+            'scene_end_frame': selected['end_frame'],
+            'audio_start_seconds': selected['start_frame'] / 30,
+            'audio_duration_seconds': rendered_duration,
+            'scene_version': job_id,
+            'storyboard_fingerprint': fingerprint,
+            'source_project_id': req.source_project_id,
+        }
+        worker = Thread(target=run_scene_job, args=(job_id, req, selected), daemon=True)
+        try:
+            JOB_MANAGER.create_and_start(job, worker.start)
+        except FileExistsError:
+            continue
+        except JobPersistenceError as exc:
+            raise HTTPException(503, 'Could not persist scene job before starting the worker.') from exc
+        except Exception as exc:
+            if JOB_MANAGER.snapshot(job_id) is not None:
+                try: JOB_MANAGER.finish_failure(job_id, str(exc))
+                except Exception: logging.exception('Could not persist scene worker-start failure for %s', job_id)
+                return JOB_MANAGER.snapshot(job_id)
+            raise HTTPException(503, 'Could not create scene render job.') from exc
+        return JOB_MANAGER.snapshot(job_id)
+    raise HTTPException(503, 'Could not allocate a unique scene render job ID.')
 
 
 @app.post('/api/episodes/{job_id}/stop')
 def stop_episode(job_id: str):
-    with LOCK:
-        if job_id not in JOBS: raise HTTPException(404, 'Episode not found')
-        if JOBS[job_id]['status'] in ('completed', 'failed', 'stopped'):
-            return JOBS[job_id]
-        STOP_EVENTS[job_id].set()
-        proc = PROCESSES.get(job_id)
-        if proc is None: JOBS[job_id].update(status='stopped', message='Rendering stopped by user')
-        result = JOBS[job_id].copy()
+    try:
+        result = JOB_MANAGER.request_stop(job_id)
+    except JobPersistenceError as exc:
+        raise HTTPException(503, 'Could not persist stop request.') from exc
+    if result is None: raise HTTPException(404, 'Episode not found')
     return result
 
 @app.get('/api/episodes')
 def list_episodes():
-    with LOCK: return list(JOBS.values())
+    return JOB_MANAGER.list_snapshots()
 
 @app.get('/api/episodes/{job_id}')
 def get_episode(job_id: str):
-    with LOCK:
-        if job_id not in JOBS: raise HTTPException(404, 'Episode not found')
-        return JOBS[job_id]
+    job = JOB_MANAGER.snapshot(job_id)
+    if job is None: raise HTTPException(404, 'Episode not found')
+    return job
 
 @app.get('/api/episodes/{job_id}/video')
 def get_video(job_id: str):
+    job = JOB_MANAGER.snapshot(job_id)
+    expected_reference = f'/api/episodes/{job_id}/video'
+    if job is None or job.get('status') != 'completed' or job.get('video') != expected_reference:
+        raise HTTPException(404, 'Video is not ready')
     p = EXPORTS / f'{job_id}.mp4'
     if not p.exists(): raise HTTPException(404, 'Video is not ready')
     return FileResponse(p, media_type='video/mp4', filename=f'what-if-{job_id}.mp4')

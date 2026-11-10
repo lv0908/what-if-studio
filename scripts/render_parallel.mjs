@@ -12,8 +12,9 @@ import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import { finished } from 'node:stream/promises';
-import { renderDuration, frameRanges } from './story_timeline.mjs';
+import { renderDuration, frameRanges, frameRangesForInterval, sceneAudioFilter } from './story_timeline.mjs';
 import { RenderProgressTracker } from './render_progress.mjs';
+import { validateSceneOutput } from './scene_media.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, arr) => (v.startsWith('--') ? [...a, [v.slice(2), arr[i + 1] && !arr[i + 1].startsWith('--') ? arr[i + 1] : true]] : a), []));
@@ -29,13 +30,29 @@ const main = fs.readFileSync(path.join(ROOT, 'src/main.js'), 'utf8');
 const storyFile = path.join(ROOT, 'story.json');
 const story = fs.existsSync(storyFile) ? JSON.parse(fs.readFileSync(storyFile, 'utf8')) : null;
 const total = renderDuration(main, story);
-const frames = Math.round(total * FPS);
-if (!frames) { console.error('Could not read scene durations from src/main.js'); process.exit(1); }
+const fullFrames = Math.round(total * FPS);
+if (!fullFrames) { console.error('Could not read scene durations from src/main.js'); process.exit(1); }
+const hasFromFrame = args['from-frame'] !== undefined;
+const hasToFrame = args['to-frame'] !== undefined;
+if (hasFromFrame !== hasToFrame) throw new Error('Both --from-frame and --to-frame are required together.');
+const sceneRange = hasFromFrame ? [Number(args['from-frame']), Number(args['to-frame'])] : null;
+if (sceneRange && (!sceneRange.every(Number.isInteger) || sceneRange[0] < 0 || sceneRange[1] <= sceneRange[0] || sceneRange[1] > fullFrames)) {
+  throw new Error(`Invalid half-open frame range; expected 0 <= start < end <= ${fullFrames}.`);
+}
+const requireAudio = args['require-audio'] === true || args['require-audio'] === 'true';
+if (requireAudio && !sceneRange) throw new Error('--require-audio is supported only with an explicit frame range.');
+const frames = sceneRange ? sceneRange[1] - sceneRange[0] : fullFrames;
 
 // chunk frame ranges [f0, f1)
-const ranges = frameRanges(total, FPS, N);
-console.log(`${total}s = ${frames} frames at ${FPS}fps, ${N} chunks:`, ranges.map((r) => r.join('-')).join(', '));
-const progress = new RenderProgressTracker(ranges, frames);
+const chunkCount = sceneRange ? Math.min(N, frames) : N;
+const ranges = sceneRange
+  ? frameRangesForInterval(sceneRange[0], sceneRange[1], chunkCount)
+  : frameRanges(total, FPS, N);
+const progressRanges = sceneRange ? ranges.map(([start, end]) => [start - sceneRange[0], end - sceneRange[0]]) : ranges;
+const renderedDuration = frames / FPS;
+const summaryDuration = sceneRange ? renderedDuration : total;
+console.log(`${sceneRange ? `${sceneRange[0]}-${sceneRange[1]} ` : ''}${summaryDuration}s = ${frames} frames at ${FPS}fps, ${ranges.length} chunks:`, ranges.map((r) => r.join('-')).join(', '));
+const progress = new RenderProgressTracker(progressRanges, frames);
 const emitProgress = (renderComplete = false, chunkId = null) => {
   console.log('WHATIF_PROGRESS ' + JSON.stringify({
     event: 'render_progress', stage: 'rendering', frame_kind: 'captured',
@@ -44,6 +61,30 @@ const emitProgress = (renderComplete = false, chunkId = null) => {
 };
 
 const count = (f) => { try { return Number(execFileSync('ffprobe', ['-v', 'error', '-count_frames', '-select_streams', 'v', '-show_entries', 'stream=nb_read_frames', '-of', 'csv=p=0', f]).toString().trim()); } catch { return 0; } };
+const audioProbe = () => {
+  if (!fs.existsSync(AUDIO)) {
+    if (requireAudio) throw new Error(`Required soundtrack is missing: ${AUDIO}`);
+    return false;
+  }
+  if (!sceneRange) return true;
+  let info;
+  try {
+    info = JSON.parse(execFileSync('ffprobe', [
+      '-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=codec_type,duration',
+      '-show_entries', 'format=duration', '-of', 'json', AUDIO,
+    ]).toString());
+  } catch (error) {
+    throw new Error(`Required soundtrack is invalid: ${error.message}`);
+  }
+  const stream = (info.streams || []).find((entry) => entry.codec_type === 'audio');
+  const duration = Number(stream?.duration ?? info.format?.duration);
+  const requiredEnd = sceneRange[1] / FPS;
+  if (!stream || !Number.isFinite(duration) || duration + (1 / FPS) < requiredEnd) {
+    throw new Error('Required soundtrack has no valid audio stream or does not cover the selected scene interval.');
+  }
+  return true;
+};
+const sceneHasAudio = sceneRange ? audioProbe() : null;
 const procs = [];
 const jobs = ranges.map(([f0, f1], i) => {
   const out = path.join(CH, `chunk-${i}.mp4`);
@@ -113,11 +154,27 @@ ranges.forEach(([f0, f1], i) => { const n = count(outs[i]); if (n !== f1 - f0) {
 const inputs = outs.flatMap((o) => ['-i', o]);
 const trims = outs.map((_, i) => `[${i}:v]trim=end_frame=${ranges[i][1] - ranges[i][0]},setpts=PTS-STARTPTS[v${i}]`).join(';');
 const filter = `${trims};${outs.map((_, i) => `[v${i}]`).join('')}concat=n=${outs.length}:v=1:a=0,format=yuv420p[v]`;
-const hasAudio = fs.existsSync(AUDIO);
+const hasAudio = sceneRange ? sceneHasAudio : fs.existsSync(AUDIO);
+const sceneAudioFilterValue = sceneRange
+  ? sceneAudioFilter(sceneRange[0], sceneRange[1], FPS)
+  : 'apad';
+const audioMap = sceneRange ? `${outs.length}:a:0` : `${outs.length}:a`;
 const ff = ['-y', '-loglevel', 'error', ...inputs, ...(hasAudio ? ['-i', AUDIO] : []), '-filter_complex', filter, '-map', '[v]',
-  ...(hasAudio ? ['-map', `${outs.length}:a`, '-af', 'apad', '-c:a', 'aac', '-b:a', '192k'] : []), '-t', (frames / FPS).toFixed(4),
+  ...(hasAudio ? ['-map', audioMap, '-af', sceneAudioFilterValue, '-c:a', 'aac', '-b:a', '192k'] : []), '-t', (frames / FPS).toFixed(4),
   '-c:v', 'libx264', '-preset', 'slow', '-crf', '20', '-profile:v', 'high', '-r', String(FPS), '-movflags', '+faststart', OUT];
 execFileSync('ffmpeg', ff, { stdio: 'inherit' });
 if (!progress.snapshot().all_chunks_complete) throw new Error('Cannot complete render: one or more chunks are incomplete.');
+if (sceneRange) {
+  let output;
+  try {
+    output = JSON.parse(execFileSync('ffprobe', [
+      '-v', 'error', '-count_frames', '-show_entries',
+      'stream=codec_type,width,height,avg_frame_rate,nb_read_frames:format=duration', '-of', 'json', OUT,
+    ]).toString());
+  } catch (error) {
+    throw new Error(`Final scene MP4 validation failed: ${error.message}`);
+  }
+  validateSceneOutput(output, { frames, width: W, height: H, fps: FPS });
+}
 emitProgress(true);
 console.log(`wrote ${OUT}${hasAudio ? '' : ' (no soundtrack found, video only)'}`);

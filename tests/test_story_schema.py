@@ -174,6 +174,15 @@ class StorySchemaTests(unittest.TestCase):
         self.assertIsNone(story.scenes[0].visual.props[0].id)
         self.assertTrue(story.scenes[0].visual.props[0].visible)
 
+    def test_empty_story_metadata_is_still_rejected_by_backend_validation(self):
+        data = self.load_example('dinosaurs-returned.json')
+        for field in ('tone', 'audience', 'narrative_style'):
+            data[field] = ''
+        with self.assertRaises(ValidationError) as raised:
+            StoryDocument.model_validate(data)
+        invalid_fields = {error['loc'][0] for error in raised.exception.errors()}
+        self.assertTrue({'tone', 'audience', 'narrative_style'}.issubset(invalid_fields))
+
     def test_save_load_edit_round_trip_and_render_api_compatibility(self):
         from tempfile import TemporaryDirectory
         with TemporaryDirectory(prefix='story-contract-roundtrip-') as directory:

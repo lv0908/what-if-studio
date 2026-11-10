@@ -44,7 +44,18 @@ class RenderProgressTests(unittest.TestCase):
         self.assertEqual(job['progress'], 95)
         self.assertEqual(job['stage'], 'rendering')
         self.assertEqual(job['frame_progress_kind'], 'captured_and_submitted')
+        self.assertNotIn('encoded_frames', job)
         self.assertIn('publishing video', job['message'])
+
+    def test_progress_helper_does_not_mutate_terminal_job_fields(self):
+        for status in ('completed', 'failed', 'stopped', 'interrupted'):
+            job = {
+                'id': 'abc', 'status': status, 'progress': 100 if status == 'completed' else 42,
+                'completed_frames': 20, 'total_frames': 100, 'message': 'terminal', 'stage': 'rendering',
+            }
+            before = dict(job)
+            apply_render_progress(job, parse_render_progress(line(90), 100))
+            self.assertEqual(job, before)
 
 
 if __name__ == '__main__':

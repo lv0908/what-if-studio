@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { renderDuration, sampleTimelineDuration, storyboardDuration, frameRanges } from '../scripts/story_timeline.mjs';
+import { renderDuration, sampleTimelineDuration, storyboardDuration, frameRanges, sceneFrameRanges, frameRangesForInterval, audioTrimRange, sceneAudioFilter } from '../scripts/story_timeline.mjs';
 
 const source = fs.readFileSync('engine/what-if/src/main.js', 'utf8');
 
@@ -36,6 +36,37 @@ test('parallel chunk ranges cover every frame once with no gaps or overlaps', ()
     assert.equal(ranges.at(-1)[1], Math.round(duration * fps));
     for (let i = 1; i < ranges.length; i++) assert.equal(ranges[i - 1][1], ranges[i][0]);
   }
+});
+
+test('scene frame ranges use cumulative half-open boundaries and preserve both durations', () => {
+  const story = { scenes: [
+    { id: 'a', duration: 1.01 },
+    { id: 'b', duration: 1.01 },
+    { id: 'c', duration: 0.98 },
+  ] };
+  const ranges = sceneFrameRanges(story, 30);
+  assert.deepEqual(ranges.get('a'), { start_frame: 0, end_frame: 30, scene_duration: 1.01, rendered_duration: 1 });
+  assert.deepEqual(ranges.get('b'), { start_frame: 30, end_frame: 61, scene_duration: 1.01, rendered_duration: 31 / 30 });
+  assert.deepEqual(ranges.get('c'), { start_frame: 61, end_frame: 90, scene_duration: 0.98, rendered_duration: 29 / 30 });
+  assert.equal([...ranges.values()].reduce((sum, range) => sum + range.end_frame - range.start_frame, 0), Math.round(3 * 30));
+});
+
+test('selected ranges split without gaps, retain first/last frames, and derive matching audio offset', () => {
+  const chunks = frameRangesForInterval(31, 91, 4);
+  assert.deepEqual(chunks, [[31, 46], [46, 61], [61, 76], [76, 91]]);
+  assert.equal(chunks[0][0], 31);
+  assert.equal(chunks.at(-1)[1] - 1, 90);
+  assert.deepEqual(audioTrimRange(31, 91, 30), { start_seconds: 31 / 30, duration_seconds: 2 });
+  assert.equal(sceneAudioFilter(31, 91, 30), 'atrim=start=1.033333333:duration=2.000000000,asetpts=PTS-STARTPTS,apad,atrim=duration=2.000000000');
+});
+
+test('full episode frame partition remains unchanged without optional scene bounds', () => {
+  assert.deepEqual(frameRanges(10, 30, 3), [[0, 100], [100, 200], [200, 300]]);
+});
+
+test('scene ranges reject duplicate IDs, invalid durations, and scenes shorter than a frame', () => {
+  assert.throws(() => sceneFrameRanges({ scenes: [{ id: 'same', duration: 1 }, { id: 'same', duration: 1 }] }), /unique/);
+  assert.throws(() => sceneFrameRanges({ scenes: [{ id: 'short', duration: 0.001 }] }), /shorter than one frame/);
 });
 
 test('parallel and browser render paths consume the same saved storyboard file', () => {

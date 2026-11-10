@@ -35,7 +35,7 @@
     #play.hidden { opacity: 0; pointer-events: none; }
     #progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255,255,255,.15); }
     #bar { height: 100%; width: 0; background: #fff; }
-    .render #play, .render #progress { display: none; }
+    .render #play, .render #progress, .preview #play, .preview #progress { display: none; }
   </style>
 </head>
 <body>
@@ -53,7 +53,7 @@
     <div id="play"></div>
     <div id="progress"><div id="bar"></div></div>
   </div>
-  <audio id="audio" src="media/soundtrack.m4a" preload="auto"></audio>
+  <audio id="audio" data-src="media/soundtrack.m4a" preload="auto"></audio>
   <script>if (location.search.includes('render')) document.body.classList.add('render');</script>
   <script type="importmap">
     { "imports": { "three": "./vendor/three/three.module.min.js", "three/addons/": "./vendor/three/addons/" } }

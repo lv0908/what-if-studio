@@ -31,6 +31,8 @@ def parse_render_progress(line, expected_total_frames):
 
 def apply_render_progress(job, event):
     """Update additive job fields while keeping the legacy percentage monotonic and <100."""
+    if job.get('status') in {'completed', 'failed', 'stopped', 'interrupted'}:
+        return job
     completed = max(job.get('completed_frames', 0), event['completed_frames'])
     total = event['total_frames']
     job['completed_frames'] = min(completed, total)
